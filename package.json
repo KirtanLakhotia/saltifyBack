@@ -1,0 +1,23 @@
+{
+  "name": "saltifyback",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.0",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^171.4.0",
+    "nodemailer": "^8.0.5",
+    "pg": "^8.20.0",
+    "razorpay": "^2.9.6",
+    "resend": "^6.10.0"
+  }
+}
