@@ -158,18 +158,22 @@ app.get('/api/cart/:userId', async (req, res) => {
 
 app.post('/api/user/address', async (req, res) => {
   try {
-    const { userId, phone, address, city, pincode, landmark, fullName } = req.body;
+    const { userId, phone, email, address, city, pincode, landmark, fullName } = req.body;
 
     if (!userId) {
       return res.status(400).json({ message: 'User ID required' });
     }
 
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {
+      return res.status(400).json({ message: 'Valid email is required' });
+    }
+
     const result = await pool.query(
       `UPDATE users 
-       SET phone=$1, address=$2, city=$3, pincode=$4, landmark=$5, name=$6
-       WHERE google_id=$7
+       SET phone=$1, email=$2, address=$3, city=$4, pincode=$5, landmark=$6, name=$7
+       WHERE google_id=$8
        RETURNING *`,
-      [phone, address, city, pincode, landmark, fullName, userId]
+      [phone, String(email).trim().toLowerCase(), address, city, pincode, landmark, fullName, userId]
     );
 
     res.json({ success: true, user: result.rows[0] });
@@ -323,10 +327,11 @@ app.post('/api/verify-payment', async (req, res) => {
         razorpay_payment_id,
         razorpay_signature,
         payment_status,
-        order_status
+        order_status,
+        email
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PAID','PLACED'
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PAID','PLACED',$13
       )
       RETURNING *;
     `
@@ -343,7 +348,8 @@ app.post('/api/verify-payment', async (req, res) => {
       user.landmark,
       razorpay_order_id,
       razorpay_payment_id,
-      razorpay_signature
+      razorpay_signature,
+      user.email
     ]
 
     const orderResult = await pool.query(insertQuery, values)
