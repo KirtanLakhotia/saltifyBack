@@ -158,7 +158,7 @@ app.get('/api/cart/:userId', async (req, res) => {
 
 app.post('/api/user/address', async (req, res) => {
   try {
-    const { userId, phone, email, address, city, pincode, landmark, fullName } = req.body;
+    const { userId, phone, email, address, city, pincode, landmark, fullName, country } = req.body;
 
     if (!userId) {
       return res.status(400).json({ message: 'User ID required' });
@@ -170,10 +170,10 @@ app.post('/api/user/address', async (req, res) => {
 
     const result = await pool.query(
       `UPDATE users 
-       SET phone=$1, email=$2, address=$3, city=$4, pincode=$5, landmark=$6, name=$7
+       SET phone=$1, email=$2, address=$3, city=$4, pincode=$5, landmark=$6, name=$7, country=$9
        WHERE google_id=$8
        RETURNING *`,
-      [phone, String(email).trim().toLowerCase(), address, city, pincode, landmark, fullName, userId]
+      [phone, String(email).trim().toLowerCase(), address, city, pincode, landmark, fullName, userId, country]
     );
 
     res.json({ success: true, user: result.rows[0] });
@@ -296,7 +296,7 @@ app.post('/api/verify-payment', async (req, res) => {
     // ✅ STEP 3: GET USER DETAILS FROM DB
     // =========================
     const userResult = await pool.query(
-      `SELECT name, email, phone, address, city, pincode, landmark
+      `SELECT name, email, phone, address, city, pincode, landmark, country
        FROM users
        WHERE google_id = $1 OR email = $1
        LIMIT 1`,
@@ -328,10 +328,11 @@ app.post('/api/verify-payment', async (req, res) => {
         razorpay_signature,
         payment_status,
         order_status,
-        email
+        email,
+        country
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PAID','PLACED',$13
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PAID','PLACED',$13,$14
       )
       RETURNING *;
     `
@@ -349,7 +350,8 @@ app.post('/api/verify-payment', async (req, res) => {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
-      user.email
+      user.email,
+      user.country
     ]
 
     const orderResult = await pool.query(insertQuery, values)

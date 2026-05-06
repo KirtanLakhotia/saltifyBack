@@ -70,6 +70,7 @@ async function notifyUser(userEmail, values) {
       payment_id,
       razorpay_signature,
       email,
+      country
     ] = values;
 
     const parsedCart = JSON.parse(cart);
@@ -92,7 +93,8 @@ async function notifyUser(userEmail, values) {
           ${address}, ${city} - ${pincode}<br/>
           Landmark: ${landmark}<br/>
           Email: ${email}<br/>
-          Phone: ${phone}
+          Phone: ${phone}<br/>
+          Country: ${country}
         </p>
 
         <h3>💳 Payment:</h3>
@@ -134,6 +136,7 @@ async function notifyAdmin(adminEmail, values) {
       payment_id,
       razorpay_signature,
       email,
+      country
     ] = values;
 
     const parsedCart = JSON.parse(cart);
@@ -149,6 +152,7 @@ async function notifyAdmin(adminEmail, values) {
         <p><strong>User ID:</strong> ${userId}</p>
         <p><strong>Name:</strong> ${name}</p>
         <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Country:</strong> ${country}</p>
 
         <h3>🛒 Items:</h3>
         <ul>${itemsHtml}</ul>
