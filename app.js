@@ -384,6 +384,242 @@ app.post('/api/verify-payment', async (req, res) => {
   }
 })
 
+const createId = async (marketplace, currency, orderDate) => {
+  const parsedDate = orderDate ? new Date(orderDate) : new Date();
+  const year = Number.isNaN(parsedDate.getTime()) ? new Date().getFullYear() : parsedDate.getFullYear();
+  const datePart = String(year + 1).slice(-2);
+  const currencyPart = currency ? currency.toUpperCase() : "XXX";
+  const region = currency === "INR" ? "DOM" : "EXP";
+
+  const countResult = await pool.query(
+    `SELECT COUNT(*) AS total_orders
+     FROM extraction_results
+     WHERE order_id LIKE $1`,
+    [`%-${currencyPart}-%`]
+  );
+
+  const existingCount = Number(countResult.rows[0]?.total_orders || 0);
+  const serialNumber = String(existingCount + 1).padStart(3, "0");
+
+  return `SALT-${region}-${currencyPart}-${datePart}-${serialNumber}`;
+};
+
+
+  app.post("/api/extractData", async (req, res) => {
+      try {
+
+          const { amazonText, indiaPostText, order_id } = req.body;
+
+          if (!amazonText || !indiaPostText) {
+              return res.status(400).json({
+                  success: false,
+                  message: "Both amazonText and indiaPostText are required."
+              });
+          }
+
+          const prompt = `
+  You are an expert logistics and invoice document parser.
+
+  You are given TWO documents.
+
+  Document 1:
+  Amazon Order PDF
+
+  Document 2:
+  India Post Booking PDF
+
+  Your job is to combine BOTH documents and extract every possible useful field.
+
+  Rules:
+
+  1. Return ONLY valid JSON.
+  2. Never explain anything.
+  3. Never use markdown.
+  4. If information is unavailable return "".
+  5. Use the most reliable value if the same field exists in both PDFs.
+  6. Keep addresses exactly as multi-line strings.
+  7. Currency should be ISO 3-letter code.
+  8. Dates should be YYYY-MM-DD whenever possible.
+  9. Amounts should be numbers.
+  10. Weights should be numbers in kilograms.
+
+  Return JSON in this format:
+
+  {
+    "amazon": {
+      "orderId": "",
+      "orderItemId": "",
+      "orderDate": "",
+      "shippingService": "",
+      "buyerName": "",
+      "sellerName": "",
+      "marketplace": "",
+      "asin": "",
+      "sku": "",
+      "condition": "",
+      "productName": "",
+      "productWeight": "",
+      "quantity": 0,
+      "unitPrice": 0,
+      "itemSubtotal": 0,
+      "shippingCharge": 0,
+      "grandTotal": 0,
+      "currency": ""
+    },
+
+    "receiver": {
+      "name": "",
+      "addressLine1": "",
+      "addressLine2": "",
+      "city": "",
+      "state": "",
+      "postalCode": "",
+      "country": "",
+      "phone": ""
+    },
+
+    "indiaPost": {
+      "trackingNumber": "",
+      "bookingDate": "",
+      "bookingTime": "",
+      "bookingDateTime": "",
+      "grossWeight": 0,
+      "netWeight": 0,
+      "totalWeight": 0,
+      "declaredValue": 0,
+      "declaredCurrency": "",
+      "destinationCountry": "",
+      "hsCode": "",
+      "countryOfOrigin": "",
+      "customDeclarationType": "",
+      "designationOperator": "",
+      "bookingOffice": "",
+      "signatureTimestamp": ""
+    },
+
+    "product": {
+      "description": "",
+      "size": "",
+      "weight": "",
+      "hsCode": "",
+    },
+
+    "summary": {
+      "invoiceAmount": 0,
+      "shippingAmount": 0,
+      "totalAmount": 0,
+      "currency": "",
+      "destinationCountry": "",
+      "originCountry": "",
+      "shippingMethod": ""
+    }
+  }
+
+  Amazon PDF:
+
+  ${amazonText}
+
+  ----------------------------
+
+  India Post PDF:
+
+  ${indiaPostText}
+
+  `;
+
+          const response = await fetch(
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + process.env.GEMINI_API_KEY,
+              {
+                  method: "POST",
+                  headers: {
+                      "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify({
+                      contents: [
+                          {
+                              parts: [
+                                  {
+                                      text: prompt
+                                  }
+                              ]
+                          }
+                      ]
+                  })
+              }
+          );
+
+          const data = await response.json();
+
+          let result =
+              data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+          result = result
+              .replace(/```json/g, "")
+              .replace(/```/g, "")
+              .trim();
+
+          const parsedData = JSON.parse(result);
+          const orderId = order_id
+              ? order_id
+              : (await createId(parsedData.amazon?.marketplace, parsedData.amazon?.currency, parsedData.amazon?.orderDate)) || "";
+
+
+          const insertResult = await pool.query(
+              `
+              INSERT INTO extraction_results (
+                  order_id,
+                  marketplace,
+                  receiver,
+                  delivery_partner,
+                  product,
+                  summary
+              )
+              VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
+              RETURNING order_id
+              `,
+              [
+                  orderId,
+                  JSON.stringify(parsedData.amazon || {}),
+                  JSON.stringify(parsedData.receiver || {}),
+                  JSON.stringify(parsedData.indiaPost || {}),
+                  JSON.stringify(parsedData.product || {}),
+                  JSON.stringify(parsedData.summary || {})
+              ]
+          );
+
+          return res.json({
+              success: true,
+              data: parsedData,
+              saved: true,
+              orderId: insertResult.rows[0].order_id
+          });
+
+      } catch (err) {
+
+          console.error(err);
+
+          return res.status(500).json({
+              success: false,
+              message: err.message
+          });
+
+      }
+  });
+
+
+  app.get("/api/fetchExtractedOrders/", async (req, res) => {
+
+    const data =  await pool.query(
+      `SELECT * FROM extraction_results ORDER BY created_at DESC`
+    );
+
+    return res.json({
+        success: true,
+        data: data.rows
+    });
+
+  }) ;
+
 
 app.get("/", (req, res) => {
   res.send("Hello from Saltify Back!");
